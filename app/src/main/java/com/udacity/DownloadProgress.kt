@@ -22,7 +22,7 @@ internal class DownloadProgress(
     override fun run() {
         while (downloadId > 0) {
             try {
-                sleep(300)
+                sleep(500)
                 cursor = manager.query(query)
                 if (cursor.moveToFirst()) {
 

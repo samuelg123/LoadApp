@@ -12,4 +12,8 @@ class DetailActivity : AppCompatActivity() {
         setSupportActionBar(toolbar)
     }
 
+    companion object {
+        const val DOWNLOADED_FILEPATH = "downloaded_filepath"
+        const val DOWNLOADED_TITLE = "downloaded_title"
+    }
 }

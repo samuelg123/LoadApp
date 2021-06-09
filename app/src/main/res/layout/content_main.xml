@@ -22,7 +22,9 @@
             android:layout_margin="20dp"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent" />
+            app:layout_constraintStart_toStartOf="parent"
+            app:textColor="@color/white"
+            app:textSize="@dimen/default_text_size" />
 
         <RadioGroup
             android:id="@+id/radio_group"
@@ -36,6 +38,12 @@
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/imageView">
+
+            <RadioButton
+                android:id="@+id/radio_100mb"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/test_100mb_file" />
 
             <RadioButton
                 android:id="@+id/radio_glide"
@@ -57,15 +65,15 @@
         </RadioGroup>
 
         <ImageView
-            android:background="@color/colorPrimaryDark"
             android:id="@+id/imageView"
             android:layout_width="0dp"
             android:layout_height="170dp"
+            android:background="@color/colorPrimaryDark"
+            android:contentDescription="@string/download_image"
             android:src="@drawable/ic_baseline_cloud_download_24"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            android:contentDescription="@string/download_image" />
+            app:layout_constraintTop_toTopOf="parent" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 </layout>

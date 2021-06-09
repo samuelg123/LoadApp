@@ -16,6 +16,7 @@ import androidx.databinding.DataBindingUtil
 import com.udacity.databinding.ActivityMainBinding
 import com.udacity.notification.createChannel
 import com.udacity.notification.sendNotification
+import kotlinx.coroutines.*
 
 class MainActivity : AppCompatActivity() {
 
@@ -49,10 +50,12 @@ class MainActivity : AppCompatActivity() {
         binding.contentMain.customButton.setOnClickListener {
             download(
                 when (binding.contentMain.radioGroup.checkedRadioButtonId) {
+                    R.id.radio_100mb -> URL_100MB_FILE
                     R.id.radio_glide -> URL_GLIDE
                     R.id.radio_current_repo -> URL_CURRENT_REPO
                     R.id.radio_retrofit -> URL_RETROFIT
                     else -> {
+                        binding.contentMain.customButton.done()
                         Toast.makeText(
                             this,
                             "Please choose one of the repository",
@@ -69,12 +72,6 @@ class MainActivity : AppCompatActivity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val id = intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
             if (downloadID == id) {
-                Toast.makeText(
-                    this@MainActivity,
-                    "Download Completed",
-                    Toast.LENGTH_SHORT
-                ).show()
-
                 // Query filename
                 val extras = intent.extras
                 val q = DownloadManager.Query()
@@ -89,16 +86,28 @@ class MainActivity : AppCompatActivity() {
                             c.getString(c.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI))
                         filename =
                             filePath.substring(filePath.lastIndexOf('/') + 1, filePath.length)
+
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Download Completed",
+                            Toast.LENGTH_SHORT
+                        ).show()
+
+                        notificationManager.sendNotification(
+                            applicationContext,
+                            "File $filename is downloaded.",
+                            filename,
+                            filePath,
+                        )
+                    } else {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Download Failed",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     }
                 }
                 c.close()
-
-                notificationManager.sendNotification(
-                    applicationContext,
-                    "File $filename is downloaded.",
-                    filename,
-                    filePath,
-                )
 
                 binding.contentMain.customButton.done()
             }
@@ -116,22 +125,53 @@ class MainActivity : AppCompatActivity() {
                 .setAllowedOverRoaming(true)
 
         downloadID =
-            downloadManager.enqueue(request)// enqueue puts the download request in the queue.
+            downloadManager.download(request)// enqueue puts the download request in the queue.
+    }
 
-        DownloadProgress(downloadID, downloadManager) { progress ->
-            runOnUiThread {
-                binding.contentMain.customButton.setProgress(progress.toFloat())
+    private val coroutineScope = CoroutineScope(Dispatchers.Default)
+
+    private fun DownloadManager.download(request: DownloadManager.Request): Long {
+        val downloadIdTemp = enqueue(request)
+        coroutineScope.launch {
+            var downloading = true
+            try {
+                while (isActive && downloading) {
+                    val q = DownloadManager.Query()
+                    q.setFilterById(downloadID)
+                    val cursor: Cursor = query(q)
+                    cursor.moveToFirst()
+                    val bytesDownloaded =
+                        cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                    val bytesTotal =
+                        cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                    if (cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)) == DownloadManager.STATUS_SUCCESSFUL) {
+                        downloading = false
+                    }
+                    withContext(Dispatchers.Main) {
+                        if (bytesTotal >= 0) {
+                            binding.contentMain.customButton.setProgress((bytesDownloaded.toFloat() / bytesTotal.toFloat()))
+                        } else {
+                            binding.contentMain.customButton.setIndeterminateProgress()
+                        }
+                    }
+                    cursor.close()
+                    delay(500)
+                }
+            } catch (e: Exception) {
             }
         }
-
+        return downloadIdTemp
     }
 
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(receiver)
+        coroutineScope.cancel()
     }
 
     companion object {
+        private const val URL_100MB_FILE =
+            "https://speed.hetzner.de/100MB.bin"
         private const val URL_GLIDE = "https://github.com/bumptech/glide/archive/master.zip"
         private const val URL_RETROFIT = "https://github.com/square/retrofit/archive/master.zip"
         private const val URL_CURRENT_REPO =

@@ -30,8 +30,6 @@ import com.udacity.R
 
 // Notification ID.
 private const val NOTIFICATION_ID = 0
-private const val REQUEST_CODE = 0
-private const val FLAGS = 0
 
 /**
  * Builds and delivers the notification.
@@ -41,9 +39,9 @@ private const val FLAGS = 0
  */
 fun NotificationManager.sendNotification(
     applicationContext: Context,
-    messageBody: String,
     downloadedTitle: String,
     downloadedFilePath: String,
+    success: Boolean
 ) {
 
     //To Home / MainActivity
@@ -59,6 +57,7 @@ fun NotificationManager.sendNotification(
     val contentIntent = Intent(applicationContext, DetailActivity::class.java).apply {
         putExtra(DetailActivity.DOWNLOADED_TITLE, downloadedTitle)
         putExtra(DetailActivity.DOWNLOADED_FILEPATH, downloadedFilePath)
+        putExtra(DetailActivity.DOWNLOAD_SUCCESS, success)
     }
     val contentPendingIntent = PendingIntent.getActivity(
         applicationContext,
@@ -80,11 +79,16 @@ fun NotificationManager.sendNotification(
         .setSmallIcon(R.drawable.ic_assistant_black_24dp)
         .setLargeIcon(downloadDoneImage)
         .setContentTitle(applicationContext.getString(R.string.notification_title))
-        .setContentText(messageBody)
+        .setContentText(
+            if (success)
+                applicationContext.getString(R.string.notification_description)
+            else
+                applicationContext.getString(R.string.download_failed)
+        )
         .setContentIntent(homePendingIntent)
         .addAction(
             R.drawable.ic_baseline_folder_open_24,
-            applicationContext.getString(R.string.open_detail),
+            applicationContext.getString(R.string.notification_button),
             contentPendingIntent
         )
         .setPriority(NotificationCompat.PRIORITY_HIGH)

@@ -8,15 +8,21 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.database.Cursor
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.util.Log
+import android.widget.RadioButton
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.children
 import androidx.databinding.DataBindingUtil
 import com.udacity.databinding.ActivityMainBinding
 import com.udacity.notification.createChannel
 import com.udacity.notification.sendNotification
 import kotlinx.coroutines.*
+
+private const val TAG = "MainActivity"
 
 class MainActivity : AppCompatActivity() {
 
@@ -34,6 +40,15 @@ class MainActivity : AppCompatActivity() {
         getSystemService(DOWNLOAD_SERVICE) as DownloadManager
     }
 
+    private fun setSelectionEnabled(enabled: Boolean){
+        binding.contentMain.radioGroup.run {
+            isEnabled = enabled
+            children.forEach {
+                it.isEnabled = enabled
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = DataBindingUtil.setContentView(this, R.layout.activity_main)
@@ -47,7 +62,12 @@ class MainActivity : AppCompatActivity() {
 
         registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
 
+        binding.contentMain.radioGroup.setOnCheckedChangeListener { group, checkedId ->
+            fileTitle = group.findViewById<RadioButton>(checkedId).text.toString()
+        }
+
         binding.contentMain.customButton.setOnClickListener {
+            setSelectionEnabled(false)
             download(
                 when (binding.contentMain.radioGroup.checkedRadioButtonId) {
                     R.id.radio_100mb -> URL_100MB_FILE
@@ -55,6 +75,7 @@ class MainActivity : AppCompatActivity() {
                     R.id.radio_current_repo -> URL_CURRENT_REPO
                     R.id.radio_retrofit -> URL_RETROFIT
                     else -> {
+                        setSelectionEnabled(true)
                         binding.contentMain.customButton.done()
                         Toast.makeText(
                             this,
@@ -73,43 +94,53 @@ class MainActivity : AppCompatActivity() {
             val id = intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
             if (downloadID == id) {
                 // Query filename
-                val extras = intent.extras
-                val q = DownloadManager.Query()
-                q.setFilterById(extras!!.getLong(DownloadManager.EXTRA_DOWNLOAD_ID))
+                val q = DownloadManager.Query().apply {
+                    setFilterById(id)
+                }
                 val c: Cursor = downloadManager.query(q)
                 var filename = ""
                 var filePath = ""
-                if (c.moveToFirst()) {
-                    val status: Int = c.getInt(c.getColumnIndex(DownloadManager.COLUMN_STATUS))
-                    if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                        filePath =
-                            c.getString(c.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI))
-                        filename =
-                            filePath.substring(filePath.lastIndexOf('/') + 1, filePath.length)
+                try {
+                    val res = c.moveToFirst()
+                    if (res) {
+                        val status: Int = c.getInt(c.getColumnIndex(DownloadManager.COLUMN_STATUS))
+                        if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                            filePath =
+                                c.getString(c.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI))
+                            filename =
+                                filePath.substring(filePath.lastIndexOf('/') + 1, filePath.length)
 
-                        Toast.makeText(
-                            this@MainActivity,
-                            "Download Completed",
-                            Toast.LENGTH_SHORT
-                        ).show()
+                            Toast.makeText(
+                                this@MainActivity,
+                                "Download Completed",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            val reason = c.getInt(c.getColumnIndex(DownloadManager.COLUMN_REASON))
+                            Log.d(TAG, "Download not correct, status [$status] reason [$reason]")
+                            Toast.makeText(
+                                this@MainActivity,
+                                "Download Failed",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
 
                         notificationManager.sendNotification(
                             applicationContext,
-                            "File $filename is downloaded.",
-                            filename,
+                            fileTitle ?: filename,
                             filePath,
+                            true
                         )
-                    } else {
-                        Toast.makeText(
-                            this@MainActivity,
-                            "Download Failed",
-                            Toast.LENGTH_SHORT
-                        ).show()
                     }
+                } catch (e: Exception) {
+                    Log.d(TAG, "Exception!! $e")
                 }
                 c.close()
 
-                binding.contentMain.customButton.done()
+                binding.contentMain.run {
+                    radioGroup.isEnabled = true
+                    customButton.done()
+                }
             }
         }
     }
@@ -120,7 +151,11 @@ class MainActivity : AppCompatActivity() {
                 .setTitle(getString(R.string.app_name))
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
                 .setDescription(getString(R.string.app_description))
-                .setRequiresCharging(false)
+                .apply {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        setRequiresCharging(false)
+                    }
+                }
                 .setAllowedOverMetered(true)
                 .setAllowedOverRoaming(true)
 
@@ -133,20 +168,21 @@ class MainActivity : AppCompatActivity() {
     private fun DownloadManager.download(request: DownloadManager.Request): Long {
         val downloadIdTemp = enqueue(request)
         coroutineScope.launch {
-            var downloading = true
+            var status: Int?
             try {
-                while (isActive && downloading) {
-                    val q = DownloadManager.Query()
-                    q.setFilterById(downloadID)
+                while (isActive) {
+                    val q = DownloadManager.Query().apply {
+                        setFilterById(downloadID)
+                    }
                     val cursor: Cursor = query(q)
                     cursor.moveToFirst()
                     val bytesDownloaded =
                         cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
                     val bytesTotal =
                         cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-                    if (cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)) == DownloadManager.STATUS_SUCCESSFUL) {
-                        downloading = false
-                    }
+                    status = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS))
+
+                    Log.d(TAG, "download: Status: $status")
                     withContext(Dispatchers.Main) {
                         if (bytesTotal >= 0) {
                             binding.contentMain.customButton.setProgress((bytesDownloaded.toFloat() / bytesTotal.toFloat()))
@@ -154,10 +190,68 @@ class MainActivity : AppCompatActivity() {
                             binding.contentMain.customButton.setIndeterminateProgress()
                         }
                     }
+//                    var filePath: String
+//                    var filename: String
+//                    when (status) {
+//                        DownloadManager.STATUS_SUCCESSFUL or DownloadManager.STATUS_FAILED -> {
+//                            filePath =
+//                                cursor.getString(cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI))
+//                            filename =
+//                                filePath.substring(filePath.lastIndexOf('/') + 1, filePath.length)
+//
+//
+//                            when (status) {
+//                                DownloadManager.STATUS_SUCCESSFUL -> {
+//                                    Toast.makeText(
+//                                        this@MainActivity,
+//                                        "Download Completed",
+//                                        Toast.LENGTH_SHORT
+//                                    ).show()
+//
+//                                    notificationManager.sendNotification(
+//                                        applicationContext,
+//                                        fileTitle ?: filename,
+//                                        filePath,
+//                                        success = true
+//                                    )
+//                                }
+//                                DownloadManager.STATUS_FAILED -> {
+//                                    val reason =
+//                                        cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_REASON))
+//                                    Log.d(TAG, "Download not correct, status [$status] reason [$reason]")
+//                                    Toast.makeText(
+//                                        this@MainActivity,
+//                                        "Download Failed",
+//                                        Toast.LENGTH_SHORT
+//                                    ).show()
+//
+//                                    notificationManager.sendNotification(
+//                                        applicationContext,
+//                                        fileTitle ?: filename,
+//                                        filePath,
+//                                        success = false
+//                                    )
+//                                }
+//                            }
+//                        }
+//                    }
                     cursor.close()
+
+                    if (status == DownloadManager.STATUS_SUCCESSFUL ||
+                        status == DownloadManager.STATUS_FAILED
+                    ) {
+                        break
+                    }
                     delay(500)
                 }
             } catch (e: Exception) {
+            }
+
+            withContext(Dispatchers.Main) {
+                setSelectionEnabled(true)
+                binding.contentMain.run {
+                    customButton.done()
+                }
             }
         }
         return downloadIdTemp
@@ -170,6 +264,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        private var fileTitle: String? = null
+
         private const val URL_100MB_FILE =
             "https://speed.hetzner.de/100MB.bin"
         private const val URL_GLIDE = "https://github.com/bumptech/glide/archive/master.zip"

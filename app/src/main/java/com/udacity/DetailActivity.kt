@@ -1,5 +1,6 @@
 package com.udacity
 
+import android.graphics.Color
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.databinding.DataBindingUtil
@@ -17,11 +18,20 @@ class DetailActivity : AppCompatActivity() {
 
         intent.extras?.run {
             val downloadedTitle = getString(DOWNLOADED_TITLE, "")
-            val downloadedFilepath = getString(DOWNLOADED_FILEPATH, "")
+//            val downloadedFilepath = getString(DOWNLOADED_FILEPATH, "")
+            val downloadSuccess = getBoolean(DOWNLOAD_SUCCESS, false)
 
             binding.contentDetail.run {
                 filename.text = downloadedTitle
-                status.text = "Success"
+                status.apply {
+                    if(downloadSuccess){
+                        text = "Success"
+                        setTextColor(Color.GREEN)
+                    } else {
+                        text = "Failed"
+                        setTextColor(Color.RED)
+                    }
+                }
                 okButton.setOnClickListener {
                     finish()
                 }

@@ -1,4 +1,4 @@
-package com.udacity.notification
+package com.udacity.utils
 /*
  * Copyright (C) 2019 Google Inc.
  *
@@ -21,7 +21,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
-import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.os.Build
 import com.udacity.DetailActivity
@@ -66,10 +65,16 @@ fun NotificationManager.sendNotification(
         PendingIntent.FLAG_UPDATE_CURRENT
     )
 
-    val downloadDoneImage = BitmapFactory.decodeResource(
-        applicationContext.resources,
-        R.drawable.ic_baseline_cloud_done_24
-    )
+    val downloadDoneImage =
+        ResourceUtils.getBitmap(
+            applicationContext,
+            if (success) R.drawable.ic_baseline_cloud_done_24 else R.drawable.ic_baseline_cloud_done_red_24
+        )
+    // BitmapFactory will not work on vector drawable
+//        BitmapFactory.decodeResource(
+//        applicationContext.resources,
+//        R.drawable.ic_baseline_cloud_done_24
+//    )
 
     // Build the notification
     val builder = NotificationCompat.Builder(

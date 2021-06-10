@@ -18,8 +18,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.children
 import androidx.databinding.DataBindingUtil
 import com.udacity.databinding.ActivityMainBinding
-import com.udacity.notification.createChannel
-import com.udacity.notification.sendNotification
+import com.udacity.utils.createChannel
+import com.udacity.utils.sendNotification
 import kotlinx.coroutines.*
 
 private const val TAG = "MainActivity"
@@ -40,7 +40,7 @@ class MainActivity : AppCompatActivity() {
         getSystemService(DOWNLOAD_SERVICE) as DownloadManager
     }
 
-    private fun setSelectionEnabled(enabled: Boolean){
+    private fun setSelectionEnabled(enabled: Boolean) {
         binding.contentMain.radioGroup.run {
             isEnabled = enabled
             children.forEach {
@@ -89,60 +89,88 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun isDownloadCanceled(cursor: Cursor?): Boolean {
+        return cursor == null || !cursor.moveToFirst()
+    }
+
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val id = intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
             if (downloadID == id) {
-                // Query filename
-                val q = DownloadManager.Query().apply {
-                    setFilterById(id)
-                }
-                val c: Cursor = downloadManager.query(q)
-                var filename = ""
-                var filePath = ""
-                try {
-                    val res = c.moveToFirst()
-                    if (res) {
-                        val status: Int = c.getInt(c.getColumnIndex(DownloadManager.COLUMN_STATUS))
-                        if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                            filePath =
-                                c.getString(c.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI))
-                            filename =
-                                filePath.substring(filePath.lastIndexOf('/') + 1, filePath.length)
+                val cursor =
+                    downloadManager.query(DownloadManager.Query().setFilterById(downloadID))
+                if (!isDownloadCanceled(cursor)) {
+                    try {
+                        val status =
+                            cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS))
+                        val filePath: String
+                        val filename: String
+                        Log.d(TAG, "download: Status: $status")
+                        when (status) {
+                            DownloadManager.STATUS_SUCCESSFUL, DownloadManager.STATUS_FAILED -> {
+                                filePath =
+                                    cursor.getString(cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI))
+                                filename = filePath.substring(
+                                    filePath.lastIndexOf('/') + 1,
+                                    filePath.length
+                                )
 
-                            Toast.makeText(
-                                this@MainActivity,
-                                "Download Completed",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        } else {
-                            val reason = c.getInt(c.getColumnIndex(DownloadManager.COLUMN_REASON))
-                            Log.d(TAG, "Download not correct, status [$status] reason [$reason]")
-                            Toast.makeText(
-                                this@MainActivity,
-                                "Download Failed",
-                                Toast.LENGTH_SHORT
-                            ).show()
+                                when (status) {
+                                    DownloadManager.STATUS_SUCCESSFUL -> {
+                                        Toast.makeText(
+                                            this@MainActivity,
+                                            "Download Completed",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+
+                                        notificationManager.sendNotification(
+                                            applicationContext,
+                                            fileTitle ?: filename,
+                                            filePath,
+                                            success = true
+                                        )
+                                    }
+                                    DownloadManager.STATUS_FAILED -> {
+                                        val reason =
+                                            cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_REASON))
+                                        Log.d(
+                                            TAG,
+                                            "Download failed with status->$status and reason->$reason"
+                                        )
+                                        downloadFailedOrCanceled(
+                                            fileTitle ?: filename,
+                                            filePath
+                                        )
+                                    }
+                                }
+                            }
                         }
-
-                        notificationManager.sendNotification(
-                            applicationContext,
-                            fileTitle ?: filename,
-                            filePath,
-                            true
-                        )
+                    } catch (e: Exception) {
+                        Log.d(TAG, "onReceive: $e")
                     }
-                } catch (e: Exception) {
-                    Log.d(TAG, "Exception!! $e")
-                }
-                c.close()
-
-                binding.contentMain.run {
-                    radioGroup.isEnabled = true
-                    customButton.done()
+                } else {
+                    downloadFailedOrCanceled(fileTitle ?: "Unknown", "")
                 }
             }
         }
+    }
+
+    private fun downloadFailedOrCanceled(
+        filename: String,
+        filePath: String,
+    ) {
+        Toast.makeText(
+            this@MainActivity,
+            "Download Failed",
+            Toast.LENGTH_SHORT
+        ).show()
+
+        notificationManager.sendNotification(
+            applicationContext,
+            fileTitle ?: filename,
+            filePath,
+            success = false
+        )
     }
 
     private fun download(url: String) {
@@ -168,9 +196,9 @@ class MainActivity : AppCompatActivity() {
     private fun DownloadManager.download(request: DownloadManager.Request): Long {
         val downloadIdTemp = enqueue(request)
         coroutineScope.launch {
-            var status: Int?
+            var status: Int = -1
             try {
-                while (isActive) {
+                loop@ while (isActive) {
                     val q = DownloadManager.Query().apply {
                         setFilterById(downloadID)
                     }
@@ -180,9 +208,8 @@ class MainActivity : AppCompatActivity() {
                         cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
                     val bytesTotal =
                         cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-                    status = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS))
-
-                    Log.d(TAG, "download: Status: $status")
+                    val newStatus =
+                        cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS))
                     withContext(Dispatchers.Main) {
                         if (bytesTotal >= 0) {
                             binding.contentMain.customButton.setProgress((bytesDownloaded.toFloat() / bytesTotal.toFloat()))
@@ -190,57 +217,25 @@ class MainActivity : AppCompatActivity() {
                             binding.contentMain.customButton.setIndeterminateProgress()
                         }
                     }
-//                    var filePath: String
-//                    var filename: String
-//                    when (status) {
-//                        DownloadManager.STATUS_SUCCESSFUL or DownloadManager.STATUS_FAILED -> {
-//                            filePath =
-//                                cursor.getString(cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI))
-//                            filename =
-//                                filePath.substring(filePath.lastIndexOf('/') + 1, filePath.length)
-//
-//
-//                            when (status) {
-//                                DownloadManager.STATUS_SUCCESSFUL -> {
-//                                    Toast.makeText(
-//                                        this@MainActivity,
-//                                        "Download Completed",
-//                                        Toast.LENGTH_SHORT
-//                                    ).show()
-//
-//                                    notificationManager.sendNotification(
-//                                        applicationContext,
-//                                        fileTitle ?: filename,
-//                                        filePath,
-//                                        success = true
-//                                    )
-//                                }
-//                                DownloadManager.STATUS_FAILED -> {
-//                                    val reason =
-//                                        cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_REASON))
-//                                    Log.d(TAG, "Download not correct, status [$status] reason [$reason]")
-//                                    Toast.makeText(
-//                                        this@MainActivity,
-//                                        "Download Failed",
-//                                        Toast.LENGTH_SHORT
-//                                    ).show()
-//
-//                                    notificationManager.sendNotification(
-//                                        applicationContext,
-//                                        fileTitle ?: filename,
-//                                        filePath,
-//                                        success = false
-//                                    )
-//                                }
-//                            }
-//                        }
-//                    }
+                    Log.d(TAG, "repeat status: $newStatus")
                     cursor.close()
 
-                    if (status == DownloadManager.STATUS_SUCCESSFUL ||
-                        status == DownloadManager.STATUS_FAILED
-                    ) {
-                        break
+                    if (newStatus != status) {
+                        status = newStatus
+                        when (status) {
+                            DownloadManager.STATUS_PAUSED -> {
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "Download paused.",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
+                            DownloadManager.STATUS_SUCCESSFUL, DownloadManager.STATUS_FAILED -> {
+                                break@loop
+                            }
+                        }
                     }
                     delay(500)
                 }
@@ -258,9 +253,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
         unregisterReceiver(receiver)
         coroutineScope.cancel()
+        super.onDestroy()
     }
 
     companion object {
